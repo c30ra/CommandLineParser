@@ -215,6 +215,10 @@ void CommandLineParser::showHelp()
       std::cout << "Options:" << '\n';
       for(const auto &opt : m_options){
           std::string name = (identation + opt.name);
+          //add alias to string
+          for(const auto &alias : opt.alias){
+              name += ' ' + alias;
+            }
           if(!opt.hint.empty()){
               name += ' ';
               name += '<' + opt.hint + '>';
