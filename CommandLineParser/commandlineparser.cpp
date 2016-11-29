@@ -1,3 +1,21 @@
+/*******************************************************************************
+This file is part of the CommadLineParser project.
+Copyright (C) 2016  Luca Carella <bkarelb at hotmail dot it>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*******************************************************************************/
+
 #include "commandlineparser.h"
 
 #include <algorithm>
@@ -37,14 +55,15 @@ void CommandLineParser::addOption(const std::string& command, const std::string&
   for(auto &str : alias){
       str = appendChar(str);
     }
+
   m_options.emplace_back(name, alias, description, hint);
 }
 
-bool CommandLineParser::process(int& argc, char** argv)
+bool CommandLineParser::process(const int& argc, char** argv)
 {
-  static const std::regex shortOptionWvalue("(^-{1}[a-zA-Z]{1})((=|\\s)([a-zA-Z0-9]+))?",
-                                            std::regex::optimize);;
-  static const std::regex longOptionWvalue("(^-{2}[a-zA-Z0-9]+)((=|\\s)([a-zA-Z0-9]+))?",
+  static const std::regex shortOptionWvalue("(^-{1}[a-zA-Z]{1})((=|\\s)([^\\0]+))?",
+                                            std::regex::optimize);
+  static const std::regex longOptionWvalue("(^-{2}[a-zA-Z0-9]+)((=|\\s)([^\\0]+))?",
                                            std::regex::optimize);
 
   m_applicationPath = argv[0];
@@ -81,23 +100,25 @@ bool CommandLineParser::process(int& argc, char** argv)
     }
 
   std::smatch subMatches;
+  auto optionCheck = true;
   for (const auto& opt : options) {
       // is short option
       if (std::regex_match(opt, subMatches, shortOptionWvalue)) {
           if (subMatches.size() == 5) {
               auto name = subMatches[1].str();
               auto value = subMatches[4].str();
-
-              setOption(name, value);
+              if(!setOption(name, value))
+                optionCheck &= false;
             }
+
         }
       // is long option
       else if (std::regex_match(opt, subMatches, longOptionWvalue)) {
           if (subMatches.size() == 5) {
               auto name = subMatches[1].str();
               auto value = subMatches[4].str();
-
-              setOption(name, value);
+              if(!setOption(name, value))
+                optionCheck &= false;
             }
         }
     }
@@ -107,7 +128,7 @@ bool CommandLineParser::process(int& argc, char** argv)
       setArgument(i, positionalArgs.at(i));
     }
 
-  return true;
+  return optionCheck;
 }
 
 std::vector<std::string> CommandLineParser::args() const
@@ -139,12 +160,54 @@ CommandLineParser::ErrorCode CommandLineParser::getErrorCode() const
   return m_errorCode;
 }
 
-void CommandLineParser::setOption(const std::string &name, const std::string &value)
+std::pair<bool, std::string> CommandLineParser::isSet(const std::string &optionName) const
+{
+  auto appendChar = [](const std::string &str){
+      auto _name = str;
+      if (str.length() == 1) {
+          _name.insert(0, 1, '-');
+        } else {
+          _name.insert(0, "--");
+        }
+      return _name;
+    };
+
+  auto name = appendChar(optionName);
+
+  auto searchResult =
+      std::find_if(std::begin(m_options),
+                   std::end(m_options),
+                   [&name](const Option &option)
+              {
+                if (name == option.name) {
+                    return true;
+                }
+                auto searchResult = std::find(std::begin(option.alias),
+                                                std::end(option.alias), name);
+
+                if (searchResult != std::end(option.alias)) {
+                    return true;
+                }
+
+                return false;});
+
+  if(std::end(m_options) != searchResult)
+    return std::make_pair(searchResult->enabled, searchResult->value);
+  else
+    return std::make_pair(false, "");
+}
+
+std::vector<CommandLineParser::Argument> CommandLineParser::getPositionalArgument() const
+{
+  return m_positionalArgument;
+}
+
+bool CommandLineParser::setOption(const std::string &name, const std::string &value)
 {
   auto searchResult =
       std::find_if(std::begin(m_options),
                    std::end(m_options),
-                   [&name](Option &option)
+                   [&name](const Option &option)
               {
                 if (name == option.name) {
                     return true;
@@ -166,9 +229,11 @@ void CommandLineParser::setOption(const std::string &name, const std::string &va
       else {
           searchResult->enabled = true;
         }
+      return true;
     }
   else {
       m_errorCode = ErrorCode::InvalidOption;
+      return false;
     }
 }
 
@@ -180,7 +245,7 @@ void CommandLineParser::setArgument(size_t position, const std::string &value)
     }
 }
 
-void CommandLineParser::showHelp()
+void CommandLineParser::showHelp() const
 {
   auto applicationName = m_applicationPath;
   auto pos = applicationName.find_last_of('\\');
